@@ -160,6 +160,19 @@ h1,h2,h3{font-family:var(--display);margin:0;letter-spacing:-.01em}
 .hashtag{color:var(--brand);font-weight:700;cursor:pointer}
 .hashtag:hover{text-decoration:underline}
 .post-img{width:100%;max-height:560px;object-fit:cover;display:block;background:var(--input);cursor:zoom-in}
+.pimgs{display:grid;gap:3px;background:var(--line)}
+.pimgs .pi{position:relative;display:block;width:100%;overflow:hidden;cursor:zoom-in;background:var(--input)}
+.pimgs img{width:100%;height:100%;object-fit:cover;display:block}
+.pimgs.n1 img{max-height:560px;height:auto}
+.pimgs.n2,.pimgs.n3,.pimgs.n4{grid-template-columns:1fr 1fr}
+.pimgs.n2 .pi,.pimgs.n3 .pi,.pimgs.n4 .pi{aspect-ratio:1}
+.pimgs.n3 .pi:first-child{grid-column:1/-1;aspect-ratio:16/9}
+.pimgs .more{position:absolute;inset:0;background:rgba(0,0,0,.55);color:#fff;display:grid;place-items:center;font:800 34px var(--display)}
+.pgrid{display:grid;gap:6px;margin:8px 0}
+.pgrid.n2,.pgrid.n3,.pgrid.n4{grid-template-columns:1fr 1fr}
+.pgrid .preview{margin:0}
+.pgrid.n2 .preview img,.pgrid.n3 .preview img,.pgrid.n4 .preview img{height:140px}
+.lb-count{position:absolute;bottom:20px;left:50%;transform:translateX(-50%);color:#fff;background:rgba(0,0,0,.5);padding:4px 12px;border-radius:999px;font-weight:600;font-size:14px}
 .shared{margin:0 16px 12px;border:1px solid var(--line);border-radius:16px;overflow:hidden}
 .shared .post-h{padding-top:12px}
 .counts{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;color:var(--muted);font-size:14px}
@@ -432,6 +445,21 @@ function readImage(file, max = 960) {
       img.src = fr.result;
     };
     fr.readAsDataURL(file);
+  });
+}
+const MAX_IMGS = 10;
+function pickImages(max) {
+  return new Promise((res, rej) => {
+    const i = document.createElement("input");
+    i.type = "file"; i.accept = "image/*"; i.multiple = true;
+    i.onchange = async () => {
+      const files = [...i.files];
+      if (!files.length) return rej(new Error("No file"));
+      const out = []; let failed = 0;
+      for (const f of files) { try { out.push(await readImage(f, max)); } catch (e) { failed++; } }
+      out.length ? res({ imgs: out, failed }) : rej(new Error("Could not open those images."));
+    };
+    i.click();
   });
 }
 function pickImage(max) {
@@ -800,6 +828,12 @@ function reactSummary(p) {
   const label = mine ? (others ? `You and ${others} other${others > 1 ? "s" : ""}` : "You") : vals.length;
   return `<span class="rx"><span class="rx-stack">${top.map(([k]) => `<span>${rx(k).e}</span>`).join("")}</span>${label}</span>`;
 }
+function postImgs(p) { return p.imgs && p.imgs.length ? p.imgs : (p.img ? [p.img] : []); }
+function imgsHTML(p, u) {
+  const l = postImgs(p); if (!l.length) return "";
+  const show = l.slice(0, 4), extra = l.length - 4;
+  return `<div class="pimgs n${show.length}">${show.map((s, i) => `<button class="pi" data-act="lightbox" data-p="${p.id}" data-i="${i}" aria-label="Open photo ${i + 1} of ${l.length}"><img src="${s}" alt="Photo ${i + 1} posted by ${esc(u.name)}" loading="lazy">${i === 3 && extra > 0 ? `<span class="more">+${extra}</span>` : ""}</button>`).join("")}</div>`;
+}
 function postInner(p, embedded) {
   const u = user(p.userId);
   const mine = p.userId === db.session;
@@ -807,8 +841,8 @@ function postInner(p, embedded) {
   return `
   <div class="post-h">${av(u, 44, "", online(u.id))}<div class="who"><b data-act="nav" data-view="profile" data-id="${u.id}">${esc(u.name)}</b>${p.feeling ? ` <small>is feeling ${esc(p.feeling)}</small>` : ""}${p.shared ? ` <small>shared a post</small>` : ""}<br><small>${ago(p.time)} · 🌍</small></div>
   ${mine && !embedded ? `<button class="menu-btn" data-act="delPost" data-id="${p.id}" aria-label="Delete post" title="Delete post">${ic("trash", 18)}</button>` : ""}</div>
-  ${p.text ? `<div class="post-t ${p.bg !== null && p.bg !== undefined && !p.img && p.text.length < 120 ? "big" : ""}" ${p.bg !== null && p.bg !== undefined && !p.img && p.text.length < 120 ? `style="background:${GRADS[p.bg % GRADS.length]};color:#fff;text-align:center;min-height:200px;display:grid;place-items:center"` : ""}><span>${fmt(p.text)}</span></div>` : ""}
-  ${p.img ? `<img class="post-img" src="${p.img}" alt="Photo posted by ${esc(u.name)}" data-act="lightbox" loading="lazy">` : ""}
+  ${p.text ? `<div class="post-t ${p.bg !== null && p.bg !== undefined && !postImgs(p).length && p.text.length < 120 ? "big" : ""}" ${p.bg !== null && p.bg !== undefined && !postImgs(p).length && p.text.length < 120 ? `style="background:${GRADS[p.bg % GRADS.length]};color:#fff;text-align:center;min-height:200px;display:grid;place-items:center"` : ""}><span>${fmt(p.text)}</span></div>` : ""}
+  ${imgsHTML(p, u)}
   ${p.shared ? (orig ? `<div class="shared">${postInner(orig, true)}</div>` : `<div class="shared"><div class="empty">This post is no longer available.</div></div>`) : ""}`;
 }
 function postHTML(p) {
@@ -900,7 +934,7 @@ function addComment(id, text, parent) {
 /* ---------- composer ---------- */
 function openComposer(withImg, shareId) {
   const m = me();
-  let img = null, bg = null;
+  let imgs = [], bg = null;
   const shared = shareId ? postById(shareId) : null;
   modal(shared ? "Share post" : "Create post", `
     <div style="display:flex;gap:12px;align-items:center;margin-bottom:8px">${av(m, 44)}<div><b>${esc(m.name)}</b><br><small class="muted">🌍 Public</small></div></div>
@@ -911,15 +945,28 @@ function openComposer(withImg, shareId) {
     <div class="addbar"><span style="font-weight:600">Add to your post</span><span style="display:flex;gap:6px;align-items:center"><select id="c-feel" aria-label="Feeling">${FEELINGS.map(f => `<option value="${f}">${f || "Feeling…"}</option>`).join("")}</select><button class="btn sm" id="c-img" style="color:var(--ok)">${ic("image", 18)} Photo</button></span></div>`}
     <button class="btn pri block" id="c-go" disabled>${shared ? "Share now" : "Post"}</button>`, root => {
     const ta = $("#c-text"), go = $("#c-go"); ta.focus();
-    const upd = () => { go.disabled = !(ta.value.trim() || img || shared); };
+    const upd = () => { go.disabled = !(ta.value.trim() || imgs.length || shared); };
     ta.addEventListener("input", upd);
-    const prev = () => { $("#c-prev").innerHTML = img ? `<div class="preview"><img src="${img}" alt="Selected photo"><button class="x" id="c-rm" aria-label="Remove photo">${ic("x", 18)}</button></div>` : ""; const rm = $("#c-rm"); rm && (rm.onclick = () => { img = null; prev(); upd(); }); };
-    const choose = async () => { try { img = await pickImage(960); prev(); upd(); } catch (e) { if (e.message !== "No file") toast(e.message); } };
+    const prev = () => {
+      $("#c-prev").innerHTML = imgs.length ? `<div class="pgrid n${Math.min(imgs.length, 4)}">${imgs.map((s, i) => `<div class="preview"><img src="${s}" alt="Selected photo ${i + 1}"><button class="x" data-rm="${i}" aria-label="Remove photo ${i + 1}">${ic("x", 18)}</button></div>`).join("")}</div>` : "";
+      $$("#c-prev [data-rm]").forEach(b => b.onclick = () => { imgs.splice(Number(b.dataset.rm), 1); prev(); upd(); });
+    };
+    const choose = async () => {
+      if (imgs.length >= MAX_IMGS) return toast("You can add up to " + MAX_IMGS + " photos.");
+      try {
+        const r = await pickImages(800);
+        const room = MAX_IMGS - imgs.length;
+        imgs.push(...r.imgs.slice(0, room));
+        if (r.imgs.length > room) toast("Only " + MAX_IMGS + " photos allowed per post.");
+        else if (r.failed) toast(r.failed + " file(s) could not be opened.");
+        prev(); upd();
+      } catch (e) { if (e.message !== "No file") toast(e.message); }
+    };
     $("#c-img") && ($("#c-img").onclick = choose);
     $("#c-sw") && $("#c-sw").addEventListener("click", e => { const b = e.target.closest("button"); if (!b) return; $$("#c-sw button").forEach(x => x.classList.remove("on")); b.classList.add("on"); bg = b.dataset.bg === "" ? null : Number(b.dataset.bg); });
     go.onclick = () => {
       const text = ta.value.trim();
-      const post = { id: uid(), userId: db.session, text, time: now(), img, bg: img ? null : bg, feeling: $("#c-feel") ? $("#c-feel").value : "", reactions: {}, comments: [], shares: 0, shared: shared ? shared.id : null };
+      const post = { id: uid(), userId: db.session, text, time: now(), imgs: imgs.slice(), img: imgs[0] || null, bg: imgs.length ? null : bg, feeling: $("#c-feel") ? $("#c-feel").value : "", reactions: {}, comments: [], shares: 0, shared: shared ? shared.id : null };
       if (shared) { shared.shares = (shared.shares || 0) + 1; notify(shared.userId, `<b>${esc(me().name)}</b> shared your post.`, "🔁"); }
       db.posts.unshift(post); save(); closeModal();
       S.view === "feed" ? (S.feedTab = "all", S.tag = null) : null;
@@ -1165,8 +1212,21 @@ function prevStory() {
 function closeViewer() { if (!viewer) return; clearInterval(viewer.timer); viewer = null; const r = $("#viewer"); r && r.remove(); renderCenter(); }
 
 /* ---------- lightbox ---------- */
-function openLightbox(src) { const d = document.createElement("div"); d.className = "lightbox"; d.id = "lb"; d.innerHTML = `<img src="${src}" alt="Full size photo">`; d.onclick = closeLightbox; document.body.appendChild(d); }
-function closeLightbox() { const d = $("#lb"); d && d.remove(); }
+let lbState = null;
+function openLightbox(list, i) {
+  closeLightbox(); lbState = { list, i };
+  const d = document.createElement("div"); d.className = "lightbox"; d.id = "lb";
+  d.onclick = e => { if (e.target === d || e.target.tagName === "IMG") closeLightbox(); };
+  document.body.appendChild(d); drawLb();
+}
+function drawLb() {
+  const d = $("#lb"); if (!d || !lbState) return;
+  const { list, i } = lbState;
+  d.innerHTML = `<img src="${list[i]}" alt="Photo ${i + 1} of ${list.length}">` + (list.length > 1 ? `<button class="vbtn l" data-act="lbPrev" aria-label="Previous photo" style="left:14px">${ic("back", 24)}</button><button class="vbtn r" data-act="lbNext" aria-label="Next photo" style="right:14px">${ic("next", 24)}</button><span class="lb-count">${i + 1} / ${list.length}</span>` : "");
+}
+function lbStep(n) { if (!lbState) return; const L = lbState.list.length; lbState.i = (lbState.i + n + L) % L; drawLb(); }
+function closeLightbox() { lbState = null; const d = $("#lb"); d && d.remove(); }
+document.addEventListener("keydown", e => { if (!lbState) return; if (e.key === "ArrowLeft") lbStep(-1); else if (e.key === "ArrowRight") lbStep(1); });
 
 /* =====================================================================
    GLOBAL EVENT DELEGATION
@@ -1220,7 +1280,9 @@ const A = {
     db.posts = db.posts.filter(p => p.id !== t.dataset.id); db.posts.forEach(p => { if (p.shared === t.dataset.id) p.shared = t.dataset.id; });
     save(); const el = $(`[data-post="${t.dataset.id}"]`); el && el.remove(); renderLeft(); toast("Post deleted");
   },
-  lightbox: t => openLightbox(t.src),
+  lightbox: t => { const p = postById(t.dataset.p); if (p) openLightbox(postImgs(p), Number(t.dataset.i) || 0); },
+  lbPrev: (t, e) => { e.stopPropagation(); lbStep(-1); },
+  lbNext: (t, e) => { e.stopPropagation(); lbStep(1); },
   addFriend: t => {
     const id = t.dataset.id; db.requests.push({ from: db.session, to: id }); save();
     const u = user(id); toast("Friend request sent to " + u.name.split(" ")[0]);
